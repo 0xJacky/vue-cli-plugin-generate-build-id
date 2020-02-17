@@ -1,0 +1,12 @@
+{
+  "name": "vue-cli-plugin-generate-build-id",
+  "description": "Generate build id when building app",
+  "version": "0.1.0",
+  "author": "0xJacky",
+  "license": "MIT",
+  "main": "index.js",
+  "keywords": [
+    "vue",
+    "vue-cli"
+  ]
+}
