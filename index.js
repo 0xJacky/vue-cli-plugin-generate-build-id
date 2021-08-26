@@ -1,67 +1,97 @@
 const fs = require('fs')
+const path = require('path')
+const {
+	done,
+	info
+} = require('@vue/cli-shared-utils')
 
 module.exports = api => {
+	const {serve, build} = api.service.commands
 
-	const build = api.service.commands.build.fn
-	const serve = api.service.commands.serve.fn
+	const serveFn = serve.fn
+	const buildFn = build.fn
 
-	const verPath = api.resolve('./version.json')
+	const verPath = 'version.json'
 	let _args = [{dest: 'dist'}]
 
-	const version = get_version_in_package()
-	const build_id = next_build_id()
+	let json = {}
 
-	api.service.commands.serve.fn = (...args) => {
-		process.env['VUE_APP_VERSION'] = version
-		serve(...args)
+	try {
+		fs.accessSync(verPath, fs.constants.F_OK | fs.constants.R_OK)
+		json = JSON.parse(fs.readFileSync(verPath).toString())
+	} catch (err) {
+		//
 	}
 
-	api.service.commands.build.fn = (...args) => {
+	const version = get_version_in_package()
+	let total_build = current_total_build()
+	let build_id = current_build_id()
+
+	serve.fn = async (...args) => {
+		process.env['VUE_APP_VERSION'] = await version
+		return serveFn(...args)
+	}
+
+	build.fn = async (...args) => {
 		_args = args
-		process.env['VUE_APP_VERSION'] = version
-		process.env['VUE_APP_BUILD_ID'] = build_id
-		build(...args).then(() => {
-			if (!process.env.VUE_CLI_MODERN_BUILD) {
-				inject()
-			}
-		})
+		process.env['VUE_APP_VERSION'] = await version
+		process.env['VUE_APP_BUILD_ID'] = await next_build_id()
+		process.env['VUE_APP_TOTAL_BUILD'] = await (total_build + 1)
+		await buildFn(...args)
+		if (!process.env.VUE_CLI_MODERN_BUILD) {
+			return inject()
+		}
 	}
 
 	function get_version_in_package() {
-		const path = api.resolve('./package.json')
+		const path = 'package.json'
 		let content = fs.readFileSync(path)
-		content = JSON.parse(content)
-		console.log('构建版本: ' + content['version'])
+		content = JSON.parse(content.toString())
+		info('Package Version: ' + content['version'])
 
 		return content['version']
 	}
 
 
-	function next_build_id() {
-		try {
-			fs.accessSync(verPath, fs.constants.R_OK | fs.constants.W_OK)
-			const json = JSON.parse(fs.readFileSync(verPath).toString())
-			if (json['version'] !== version || !Number.isInteger(json['build_id'])) {
-				return 1
-			}
-			return ++json['build_id']
-		} catch (err) {
-			return 1
+	function current_build_id() {
+		if (!Number.isInteger(json['build_id'])) {
+			return 0
 		}
+		return json['build_id']
 	}
 
+	function next_build_id() {
+		if (json['version'] !== version) {
+			return 1
+		}
+		return build_id + 1
+	}
+
+	function current_total_build() {
+		if (!Number.isInteger(json['total_build'])) {
+			return current_build_id()
+		}
+		return json['total_build']
+	}
+
+	function get_dest() {
+		return _args[0]?.dest ?? 'dist'
+	}
 
 	function inject() {
-		let lines = {}
-		lines['version'] = version
-		lines['build_id'] = build_id
+		let lines = {
+			version: version,
+			build_id: next_build_id(),
+			total_build: ++total_build
+		}
 		const content = JSON.stringify(lines)
-		console.log('当前版本: ' + lines['version'] + '-' + lines['build_id'])
-		console.log('正在写入 version.json')
+		info('Build Version: ' + lines['version'] + '-' + lines['build_id'] +
+			' (' + lines['total_build'] + ')')
+		info('Saving version.json')
 		fs.writeFileSync(verPath, content, {encoding: 'utf-8'})
-		console.log('正在复制 version.json')
-		fs.copyFileSync(verPath, api.resolve('./' + _args[0].dest + '/version.json'))
-		console.log('Done')
+		info('Copying version.json to ' + get_dest())
+		fs.copyFileSync(verPath, api.resolve(path.join(get_dest(), 'version.json')))
+		done('Done')
 	}
 }
 
